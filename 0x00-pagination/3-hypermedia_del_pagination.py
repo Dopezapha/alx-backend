@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""
-Implement methods get_page, get_hyper, and get_hyper_index for
-paginating a database of popular baby names.
+"""Deletion-resilient hypermedia pagination
 """
 import csv
-import math
-from typing import List, Any, Dict
+from typing import Dict, List
 
 
 class Server:
-    """
-    Server class to paginate a database of popular baby names.
+    """Server class to paginate a database of popular baby names.
     """
     DATA_FILE = "Popular_Baby_Names.csv"
 
     def __init__(self):
+        """Initializes a new Server instance.
+        """
         self.__dataset = None
+        self.__indexed_dataset = None
 
     def dataset(self) -> List[List]:
-        """Cached dataset"""
+        """Cached dataset
+        """
         if self.__dataset is None:
             with open(self.DATA_FILE) as f:
                 reader = csv.reader(f)
@@ -27,76 +27,39 @@ class Server:
 
         return self.__dataset
 
-    def get_page(self, page: int = 1, page_size: int = 10) -> List[List]:
+    def indexed_dataset(self) -> Dict[int, List]:
+        """Dataset indexed by sorting position, starting at 0
         """
-        Returns the appropriate page of the dataset.
-        """
-        assert isinstance(page, int) and page > 0
-        assert isinstance(page_size, int) and page_size > 0
-
-        data = self.dataset()
-        try:
-            return get_page(page, page_size, data)
-        except AssertionError:
-            return []
-
-    def get_hyper(self, page: int = 1, page_size: int = 10) -> Dict:
-        """
-        Returns a dictionary containing pagination information.
-        """
-        data = self.get_page(page, page_size)
-        total_data = len(self.dataset())
-        total_pages = math.ceil(total_data / page_size)
-
-        return {
-            "page_size": len(data),
-            "page": page,
-            "data": data,
-            "next_page": page + 1 if page < total_pages else None,
-            "prev_page": page - 1 if page > 1 else None,
-            "total_pages": total_pages
-        }
+        if self.__indexed_dataset is None:
+            dataset = self.dataset()
+            truncated_dataset = dataset[:1000]
+            self.__indexed_dataset = {
+                i: dataset[i] for i in range(len(dataset))
+            }
+        return self.__indexed_dataset
 
     def get_hyper_index(self, index: int = None, page_size: int = 10) -> Dict:
+        """Retrieves info about a page from a given index and with a
+        specified size.
         """
-        Returns a dictionary with pagination information based on index.
-        """
-        assert index is None or (
-                isinstance(index, int) and 0 <= index < len(self.dataset())
-                ), "Invalid index"
-
-        data = self.dataset()
-        if index is None:
-            index = 0
-
-        next_index = index + page_size
-        page_data = data[index:next_index]
-
-        return {
-            "index": index,
-            "next_index": next_index if next_index < len(data) else None,
-            "page_size": len(page_data),
-            "data": page_data
+        data = self.indexed_dataset()
+        assert index is not None and index >= 0 and index <= max(data.keys())
+        page_data = []
+        data_count = 0
+        next_index = None
+        start = index if index else 0
+        for i, item in data.items():
+            if i >= start and data_count < page_size:
+                page_data.append(item)
+                data_count += 1
+                continue
+            if data_count == page_size:
+                next_index = i
+                break
+        page_info = {
+            'index': index,
+            'next_index': next_index,
+            'page_size': len(page_data),
+            'data': page_data,
         }
-
-
-def index_range(page: int, page_size: int) -> tuple:
-    """
-    Return a tuple of size two containing a start index and an end index
-    """
-    start_index = (page - 1) * page_size
-    end_index = page * page_size
-    return (start_index, end_index)
-
-
-def get_page(page: int, page_size: int, data: List[Any]) -> List[Any]:
-    """
-    A method called get_page that takes two integers page and page_size
-    and returns the appropriate page of the dataset
-    """
-    assert isinstance(page, int) and page > 0
-    assert isinstance(page_size, int) and page_size > 0
-    if page > len(data) // page_size + (1 if len(data) % page_size else 0):
-        return []
-    start, end = index_range(page, page_size)
-    return data[start:end]
+        return page_info
